@@ -550,8 +550,8 @@ const ChartsService = (function() {
         const chart = initChart(containerId);
         if (!chart) return;
 
-        // 如果没有数据，显示空状态
-        if (!data || !data.nodes || data.nodes.length < 2) {
+        // 如果没有数据或没有有效的链接，显示空状态
+        if (!data || !data.nodes || data.nodes.length < 2 || !data.links || data.links.length === 0) {
             showEmptyState(chart, '暂无情绪变化数据');
             return;
         }
@@ -744,7 +744,7 @@ const ChartsService = (function() {
                 }
             },
             legend: {
-                data: data.words.map(w => w.name),
+                data: chartWords.map(w => w.name),
                 top: 0,
                 textStyle: {
                     fontSize: 12,
@@ -765,7 +765,7 @@ const ChartsService = (function() {
             xAxis: {
                 type: 'category',
                 boundaryGap: false,
-                data: data.dates,
+                data: chartDates,
                 axisLine: {
                     lineStyle: {
                         color: '#e2e8f0'
@@ -774,7 +774,7 @@ const ChartsService = (function() {
                 axisLabel: {
                     color: '#64748b',
                     fontSize: 11,
-                    rotate: data.dates.length > 15 ? 45 : 0
+                    rotate: chartDates.length > 15 ? 45 : 0
                 }
             },
             yAxis: {
@@ -798,7 +798,7 @@ const ChartsService = (function() {
                 }
             },
             // 数据区域缩放 - 支持鼠标滚轮缩放和框选
-            dataZoom: [
+            dataZoom: chartDates.length > 5 ? [
                 {
                     type: 'inside',
                     start: 0,
@@ -824,7 +824,7 @@ const ChartsService = (function() {
                         fontSize: 10
                     }
                 }
-            ],
+            ] : undefined,
             // 工具箱 - 支持框选筛选、数据视图、下载等
             toolbox: {
                 show: true,

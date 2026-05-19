@@ -610,6 +610,15 @@ const StatsService = (function() {
                     }
                 }
             });
+            
+            // 同时提取英文单词
+            const englishWords = content.match(/[a-zA-Z]{3,}/g) || [];
+            englishWords.forEach(word => {
+                const lowerWord = word.toLowerCase();
+                if (!stopWords.includes(lowerWord)) {
+                    wordFrequency[lowerWord] = (wordFrequency[lowerWord] || 0) + 1;
+                }
+            });
         });
 
         // 获取TopN高频词
