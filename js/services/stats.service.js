@@ -478,13 +478,6 @@ const StatsService = (function() {
      * @returns {Object} - 桑基图数据 { nodes: [], links: [] }
      */
     function getEmotionSankeyData(diaries) {
-        if (diaries.length < 2) {
-            return { nodes: [], links: [] };
-        }
-
-        // 按时间排序
-        const sortedDiaries = [...diaries].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-
         // 情绪类型映射
         const emotionMap = {
             positive: '积极情绪',
@@ -499,44 +492,62 @@ const StatsService = (function() {
             negative: '#ef4444'
         };
 
+        // 统计各情绪的日记数量
+        const emotionCounts = { positive: 0, neutral: 0, negative: 0 };
+        const diariesWithSentiment = [];
+
+        diaries.forEach(diary => {
+            if (diary.sentiment && diary.sentiment.dominant) {
+                const emotion = diary.sentiment.dominant;
+                if (emotionCounts.hasOwnProperty(emotion)) {
+                    emotionCounts[emotion]++;
+                    diariesWithSentiment.push(diary);
+                }
+            }
+        });
+
+        // 如果有情绪的日记少于2篇，只返回节点和统计数据，不返回链接
+        if (diariesWithSentiment.length < 2) {
+            const nodes = Object.entries(emotionMap)
+                .filter(([key]) => emotionCounts[key] > 0)
+                .map(([key, name]) => ({
+                    name: name,
+                    itemStyle: {
+                        color: emotionColors[key]
+                    }
+                }));
+            return { nodes, links: [], emotionCounts };
+        }
+
+        // 按时间排序
+        const sortedDiaries = [...diariesWithSentiment].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
         // 统计情绪转换
         const transitions = {};
-        const emotionCounts = { positive: 0, neutral: 0, negative: 0 };
 
         for (let i = 0; i < sortedDiaries.length - 1; i++) {
             const current = sortedDiaries[i];
             const next = sortedDiaries[i + 1];
 
-            if (current.sentiment && next.sentiment) {
-                const currentEmotion = current.sentiment.dominant;
-                const nextEmotion = next.sentiment.dominant;
+            const currentEmotion = current.sentiment.dominant;
+            const nextEmotion = next.sentiment.dominant;
 
-                if (currentEmotion && nextEmotion) {
-                    // 排除自循环，桑基图不支持 cycle
-                    if (currentEmotion !== nextEmotion) {
-                        const key = `${currentEmotion}->${nextEmotion}`;
-                        transitions[key] = (transitions[key] || 0) + 1;
-                    }
-                    emotionCounts[currentEmotion]++;
+            // 排除自循环，桑基图不支持 cycle
+            if (currentEmotion !== nextEmotion) {
+                const key = `${currentEmotion}->${nextEmotion}`;
+                transitions[key] = (transitions[key] || 0) + 1;
+            }
+        }
+
+        // 只包含有数据的节点
+        const nodes = Object.entries(emotionMap)
+            .filter(([key]) => emotionCounts[key] > 0)
+            .map(([key, name]) => ({
+                name: name,
+                itemStyle: {
+                    color: emotionColors[key]
                 }
-            }
-        }
-
-        // 统计最后一篇的情绪
-        if (sortedDiaries.length > 0 && sortedDiaries[sortedDiaries.length - 1].sentiment) {
-            const lastEmotion = sortedDiaries[sortedDiaries.length - 1].sentiment.dominant;
-            if (lastEmotion) {
-                emotionCounts[lastEmotion]++;
-            }
-        }
-
-        // 构建节点数据
-        const nodes = Object.entries(emotionMap).map(([key, name]) => ({
-            name: name,
-            itemStyle: {
-                color: emotionColors[key]
-            }
-        }));
+            }));
 
         // 构建链接数据
         const links = Object.entries(transitions).map(([key, value]) => {
@@ -544,20 +555,7 @@ const StatsService = (function() {
             return {
                 source: emotionMap[source],
                 target: emotionMap[target],
-                value: value,
-                lineStyle: {
-                    color: {
-                        type: 'linear',
-                        x: 0,
-                        y: 0,
-                        x2: 1,
-                        y2: 0,
-                        colorStops: [
-                            { offset: 0, color: emotionColors[source] },
-                            { offset: 1, color: emotionColors[target] }
-                        ]
-                    }
-                }
+                value: value
             };
         });
 

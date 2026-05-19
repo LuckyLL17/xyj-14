@@ -320,7 +320,12 @@ const ChartsService = (function() {
             ]
         };
 
-        chart.setOption(option);
+        try {
+            chart.setOption(option);
+        } catch (e) {
+            console.warn('Bar chart render error:', e);
+            showEmptyState(chart, '写作频率数据格式有误');
+        }
     }
 
     /**
@@ -428,7 +433,12 @@ const ChartsService = (function() {
             ]
         };
 
-        chart.setOption(option);
+        try {
+            chart.setOption(option);
+        } catch (e) {
+            console.warn('Pie chart render error:', e);
+            showEmptyState(chart, '情绪分布数据格式有误');
+        }
     }
 
     /**
@@ -537,7 +547,12 @@ const ChartsService = (function() {
             ]
         };
 
-        chart.setOption(option);
+        try {
+            chart.setOption(option);
+        } catch (e) {
+            console.warn('Radar chart render error:', e);
+            showEmptyState(chart, '写作习惯数据格式有误');
+        }
     }
 
     /**
@@ -550,14 +565,107 @@ const ChartsService = (function() {
         const chart = initChart(containerId);
         if (!chart) return;
 
-        // 如果没有数据或没有有效的链接，显示空状态
-        if (!data || !data.nodes || data.nodes.length < 2 || !data.links || data.links.length === 0) {
+        // 如果没有数据，显示空状态
+        if (!data || !data.nodes || data.nodes.length === 0) {
             showEmptyState(chart, '暂无情绪变化数据');
             return;
         }
 
+        // 如果只有节点没有连线，显示一个静态的情绪分布图
+        if (!data.links || data.links.length === 0) {
+            // 使用饼图来展示情绪分布
+            const emotionCounts = data.emotionCounts || { positive: 0, neutral: 0, negative: 0 };
+            const total = emotionCounts.positive + emotionCounts.neutral + emotionCounts.negative;
+            
+            if (total === 0) {
+                showEmptyState(chart, '暂无情绪变化数据');
+                return;
+            }
+
+            const pieData = [
+                { value: emotionCounts.positive, name: '积极情绪', itemStyle: { color: '#22c55e' } },
+                { value: emotionCounts.neutral, name: '中性情绪', itemStyle: { color: '#f59e0b' } },
+                { value: emotionCounts.negative, name: '消极情绪', itemStyle: { color: '#ef4444' } }
+            ].filter(item => item.value > 0);
+
+            const option = {
+                ...commonOptions,
+                title: {
+                    text: '情绪分布（暂无情绪转换）',
+                    left: 'center',
+                    top: 0,
+                    textStyle: {
+                        fontSize: 12,
+                        color: '#64748b',
+                        fontWeight: 'normal'
+                    }
+                },
+                tooltip: {
+                    trigger: 'item',
+                    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                    borderColor: '#e2e8f0',
+                    borderWidth: 1,
+                    textStyle: {
+                        color: '#1e293b',
+                        fontSize: 13
+                    },
+                    formatter: function(params) {
+                        const percent = ((params.value / total) * 100).toFixed(1);
+                        return `
+                            <div style="font-weight: 600; margin-bottom: 8px;">${params.name}</div>
+                            <div style="display: flex; justify-content: space-between; gap: 20px;">
+                                <span>数量:</span>
+                                <span style="font-weight: 600;">${params.value} 篇</span>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; gap: 20px;">
+                                <span>占比:</span>
+                                <span style="font-weight: 600; color: ${params.color};">${percent}%</span>
+                            </div>
+                        `;
+                    }
+                },
+                series: [
+                    {
+                        type: 'pie',
+                        radius: ['40%', '65%'],
+                        center: ['50%', '55%'],
+                        avoidLabelOverlap: true,
+                        itemStyle: {
+                            borderRadius: 8,
+                            borderColor: '#fff',
+                            borderWidth: 2
+                        },
+                        label: {
+                            show: true,
+                            position: 'outside',
+                            formatter: '{b}: {c}篇',
+                            fontSize: 11,
+                            color: '#64748b'
+                        },
+                        emphasis: {
+                            label: {
+                                show: true,
+                                fontSize: 14,
+                                fontWeight: 'bold'
+                            },
+                            itemStyle: {
+                                shadowBlur: 10,
+                                shadowOffsetX: 0,
+                                shadowColor: 'rgba(0, 0, 0, 0.2)'
+                            },
+                            scale: true,
+                            scaleSize: 8
+                        },
+                        data: pieData
+                    }
+                ]
+            };
+
+            chart.setOption(option);
+            return;
+        }
+
         const option = {
-            ...commonOptions,
             tooltip: {
                 trigger: 'item',
                 triggerOn: 'mousemove',
@@ -602,13 +710,8 @@ const ChartsService = (function() {
                     type: 'sankey',
                     layout: 'none',
                     emphasis: {
-                        focus: 'adjacency',
-                        itemStyle: {
-                            shadowBlur: 10,
-                            shadowColor: 'rgba(0, 0, 0, 0.3)'
-                        }
+                        focus: 'adjacency'
                     },
-                    nodeAlign: 'left',
                     data: data.nodes,
                     links: data.links,
                     lineStyle: {
@@ -629,7 +732,12 @@ const ChartsService = (function() {
             ]
         };
 
-        chart.setOption(option);
+        try {
+            chart.setOption(option);
+        } catch (e) {
+            console.warn('Sankey chart render error:', e);
+            showEmptyState(chart, '情绪变化数据格式有误');
+        }
     }
 
     /**
@@ -852,7 +960,12 @@ const ChartsService = (function() {
             series: series
         };
 
-        chart.setOption(option);
+        try {
+            chart.setOption(option);
+        } catch (e) {
+            console.warn('Line chart render error:', e);
+            showEmptyState(chart, '词频数据格式有误');
+        }
     }
 
     /**
