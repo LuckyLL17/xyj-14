@@ -377,6 +377,242 @@ const StatsService = (function() {
         return html;
     }
     
+    /**
+     * 生成写作习惯雷达图数据
+     * 五个维度：
+     *   1. 写作频率 —— 在选定周期内写了多少天（满分按周期最大天数）
+     *   2. 平均字数 —— 每篇日记的平均字数（满分 1000）
+     *   3. 情感积极度 —— 积极情绪占比（满分 100）
+     *   4. 写作规律性 —— 连续写作天数在周期内的表现（满分按周期天数）
+     *   5. 词汇丰富度 —— 不同词汇数占中文字符总数的比例（满分 100）
+     *
+     * @param {Object} stats - calculateStats 返回的统计对象
+     * @param {string} period - 'day' | 'week' | 'month' | 'year'
+     * @param {Array}  diaries - 当前用户的日记列表（需要读取 content 提取词汇）
+     * @returns {{ indicators: [{name,max}], values: [number] }}
+     */
+    function getWritingHabitRadarData(stats, period, diaries) {
+        /* 各周期对应的最大天数，用于归一化 */
+        var periodMaxDays = { day: 1, week: 7, month: 31, year: 365 };
+        var maxDays = periodMaxDays[period] || 30;
+
+        /* 维度 1：写作频率 = 有写作记录的天数 / 周期总天数 * 100 */
+        var writingDays = Object.keys(stats.frequency).length;
+        var frequencyScore = Math.min(100, Math.round((writingDays / maxDays) * 100));
+
+        /* 维度 2：平均字数，归一化到 100 分（1000 字满分） */
+        var avgWordScore = Math.min(100, Math.round((stats.avgWords / 1000) * 100));
+
+        /* 维度 3：情感积极度 = 积极占比 * 100 */
+        var emotionTotal = stats.emotionStats.positive + stats.emotionStats.neutral + stats.emotionStats.negative;
+        var positiveScore = emotionTotal > 0
+            ? Math.round((stats.emotionStats.positive / emotionTotal) * 100)
+            : 50;
+
+        /* 维度 4：写作规律性 = 连续天数 / 周期总天数 * 100 */
+        var regularityScore = Math.min(100, Math.round((stats.streak / maxDays) * 100));
+
+        /* 维度 5：词汇丰富度 —— 从日记内容中提取不重复词汇数占比 */
+        var uniqueChars = new Set();
+        var totalChars = 0;
+        var filteredDiaries = period === 'all' ? diaries : filterDiariesByPeriod(diaries, period);
+        filteredDiaries.forEach(function(diary) {
+            if (!diary.content) return;
+            var chars = diary.content.match(/[\u4e00-\u9fa5]/g) || [];
+            chars.forEach(function(c) { uniqueChars.add(c); });
+            totalChars += chars.length;
+        });
+        var diversityScore = totalChars > 0
+            ? Math.min(100, Math.round((uniqueChars.size / totalChars) * 100 * 5))
+            : 0;
+
+        return {
+            indicators: [
+                { name: '写作频率', max: 100 },
+                { name: '平均字数', max: 100 },
+                { name: '情感积极度', max: 100 },
+                { name: '写作规律性', max: 100 },
+                { name: '词汇丰富度', max: 100 }
+            ],
+            values: [frequencyScore, avgWordScore, positiveScore, regularityScore, diversityScore]
+        };
+    }
+
+    /**
+     * 生成情绪变化桑基图数据
+     * 按时间顺序遍历日记，统计「前一篇情绪 → 后一篇情绪」的转换次数
+     * 节点名使用 "_前" / "_后" 后缀区分左右两侧
+     *
+     * @param {Array} diaries - 日记列表（需按时间排序）
+     * @returns {{ nodes: [{name}], links: [{source, target, value}] }}
+     */
+    function getEmotionSankeyData(diaries) {
+        /* 按创建时间升序排列 */
+        var sorted = [].concat(diaries).sort(function(a, b) {
+            return new Date(a.createdAt) - new Date(b.createdAt);
+        });
+
+        /* 仅保留有情感分析结果的日记 */
+        var withSentiment = sorted.filter(function(d) {
+            return d.sentiment && d.sentiment.dominant;
+        });
+
+        /* 少于 2 篇无法形成转换 */
+        if (withSentiment.length < 2) {
+            return { nodes: [], links: [] };
+        }
+
+        /* 情绪标签映射为中文 */
+        var labelMap = { positive: '积极', neutral: '中性', negative: '消极' };
+
+        /* 统计转换计数 */
+        var transitionCount = {};
+        for (var i = 1; i < withSentiment.length; i++) {
+            var src = labelMap[withSentiment[i - 1].sentiment.dominant] + '_前';
+            var tgt = labelMap[withSentiment[i].sentiment.dominant] + '_后';
+            var key = src + '→' + tgt;
+            transitionCount[key] = (transitionCount[key] || 0) + 1;
+        }
+
+        /* 构建节点和连线 */
+        var nodeSet = {};
+        var nodes = [];
+        var links = [];
+
+        Object.keys(transitionCount).forEach(function(k) {
+            var parts = k.split('→');
+            var source = parts[0];
+            var target = parts[1];
+
+            if (!nodeSet[source]) {
+                nodeSet[source] = true;
+                nodes.push({ name: source });
+            }
+            if (!nodeSet[target]) {
+                nodeSet[target] = true;
+                nodes.push({ name: target });
+            }
+
+            links.push({
+                source: source,
+                target: target,
+                value: transitionCount[k]
+            });
+        });
+
+        return { nodes: nodes, links: links };
+    }
+
+    /**
+     * 生成词频趋势折线图数据
+     * 从日记内容中提取高频关键词，按日期统计每个关键词的出现次数
+     * 取 Top N 个关键词作为折线系列
+     *
+     * @param {Array}  diaries - 日记列表
+     * @param {number} topN    - 取前 N 个高频词（默认 5）
+     * @returns {{ dates: string[], words: [{name, data: [number]}] }}
+     */
+    function getWordFreqTrendData(diaries, topN) {
+        topN = topN || 5;
+
+        /* 按创建时间升序 */
+        var sorted = [].concat(diaries).sort(function(a, b) {
+            return new Date(a.createdAt) - new Date(b.createdAt);
+        });
+
+        if (sorted.length === 0) {
+            return { dates: [], words: [] };
+        }
+
+        /* 合并所有文本，统计词频 */
+        var wordCount = {};
+        sorted.forEach(function(diary) {
+            if (!diary.content) return;
+            var tokens = extractKeywords(diary.content);
+            tokens.forEach(function(t) {
+                wordCount[t] = (wordCount[t] || 0) + 1;
+            });
+        });
+
+        /* 取 TopN 关键词 */
+        var sortedWords = Object.keys(wordCount).sort(function(a, b) {
+            return wordCount[b] - wordCount[a];
+        });
+        var topWords = sortedWords.slice(0, topN);
+
+        if (topWords.length === 0) {
+            return { dates: [], words: [] };
+        }
+
+        /* 按日期统计每个关键词的出现次数 */
+        var dates = [];
+        var wordDateCount = {};
+
+        sorted.forEach(function(diary) {
+            var dateKey = formatDate(diary.createdAt);
+            if (dates.indexOf(dateKey) === -1) {
+                dates.push(dateKey);
+            }
+
+            var tokens = diary.content ? extractKeywords(diary.content) : [];
+            tokens.forEach(function(t) {
+                if (topWords.indexOf(t) === -1) return;
+                if (!wordDateCount[t]) wordDateCount[t] = {};
+                wordDateCount[t][dateKey] = (wordDateCount[t][dateKey] || 0) + 1;
+            });
+        });
+
+        /* 组装数据 */
+        var words = topWords.map(function(w) {
+            return {
+                name: w,
+                data: dates.map(function(d) { return wordDateCount[w][d] || 0; })
+            };
+        });
+
+        return { dates: dates, words: words };
+    }
+
+    /**
+     * 从文本中提取关键词（简易中文分词）
+     * 提取 2-4 字的中文词组，过滤停用词
+     *
+     * @param {string} text - 原始文本
+     * @returns {Array} 关键词数组
+     */
+    function extractKeywords(text) {
+        if (!text) return [];
+
+        /* 常见停用词 */
+        var stopWords = ['今天', '昨天', '明天', '这个', '那个', '什么', '怎么',
+            '没有', '可以', '已经', '因为', '所以', '但是', '虽然', '如果',
+            '就是', '不是', '还是', '一些', '这些', '那些', '自己', '他们',
+            '我们', '你们', '一个', '现在', '这样', '那样', '的话', '之后',
+            '之前', '然后', '觉得', '知道', '时候', '起来', '出来', '过来',
+            '下去', '应该', '可能', '需要', '开始', '其实', '一直', '比较',
+            '非常', '真的', '很多', '这样', '那样', '这里', '那里', '我的',
+            '你的', '他的', '她的', '它们', '只是', '只有', '而且', '或者',
+            '以及', '还是', '对于', '关于', '通过', '进行', '作为', '目前'];
+
+        /* 提取所有中文片段 */
+        var chineseBlocks = text.match(/[\u4e00-\u9fa5]+/g) || [];
+        var keywords = [];
+
+        chineseBlocks.forEach(function(block) {
+            /* 滑动窗口提取 2~4 字词组 */
+            for (var len = 2; len <= 4; len++) {
+                for (var i = 0; i <= block.length - len; i++) {
+                    var word = block.substring(i, i + len);
+                    if (stopWords.indexOf(word) === -1) {
+                        keywords.push(word);
+                    }
+                }
+            }
+        });
+
+        return keywords;
+    }
+
     return {
         countWords,
         formatDate,
@@ -390,6 +626,10 @@ const StatsService = (function() {
         calculateStreak,
         getFrequencyChartData,
         getEmotionChartData,
+        getWritingHabitRadarData,
+        getEmotionSankeyData,
+        getWordFreqTrendData,
+        extractKeywords,
         generateChartHTML,
         generatePieChartHTML
     };

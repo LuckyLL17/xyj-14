@@ -8,6 +8,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 </head>
 <body>
     <div id="app">
@@ -258,11 +259,23 @@
                             <div class="stats-charts">
                                 <div class="chart-container">
                                     <h3>写作频率</h3>
-                                    <div class="chart" id="frequency-chart"></div>
+                                    <div class="chart echarts-chart" id="frequency-chart"></div>
                                 </div>
                                 <div class="chart-container">
                                     <h3>情绪分布</h3>
-                                    <div class="chart" id="emotion-chart"></div>
+                                    <div class="chart echarts-chart" id="emotion-chart"></div>
+                                </div>
+                                <div class="chart-container">
+                                    <h3>写作习惯雷达图</h3>
+                                    <div class="chart echarts-chart" id="radar-chart"></div>
+                                </div>
+                                <div class="chart-container">
+                                    <h3>情绪变化桑基图</h3>
+                                    <div class="chart echarts-chart" id="sankey-chart"></div>
+                                </div>
+                                <div class="chart-container chart-container-full">
+                                    <h3>词频趋势折线图</h3>
+                                    <div class="chart echarts-chart echarts-chart-tall" id="wordfreq-chart"></div>
                                 </div>
                             </div>
                             
@@ -324,6 +337,7 @@
     <script src="js/services/weather.service.js"></script>
     <script src="js/services/sentiment.service.js"></script>
     <script src="js/services/stats.service.js"></script>
+    <script src="js/services/echarts.service.js"></script>
     <script src="js/services/diary.service.js"></script>
     <script src="js/utils/date.utils.js"></script>
     <script src="js/utils/markdown.utils.js"></script>

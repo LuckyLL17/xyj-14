@@ -752,6 +752,29 @@ body {
     min-height: 200px;
 }
 
+/* ECharts 图表容器样式 */
+.echarts-chart {
+    width: 100%;
+    height: 300px;
+    min-height: 280px;
+}
+
+/* 词频趋势折线图需要更大的高度 */
+.echarts-chart-tall {
+    height: 380px;
+    min-height: 340px;
+}
+
+/* 桑基图需要更宽的容器 */
+#sankey-chart {
+    height: 320px;
+}
+
+/* 全宽图表容器（词频趋势折线图横跨两列） */
+.chart-container-full {
+    grid-column: 1 / -1;
+}
+
 /* 快捷输入面板 */
 .quick-input-panel {
     position: fixed;

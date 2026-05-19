@@ -42,6 +42,13 @@
             
             EditorComponent.init();
             
+            /* 窗口大小变化时，自动调整所有 ECharts 图表尺寸 */
+            window.addEventListener('resize', debounce(function() {
+                if (typeof EchartsService !== 'undefined') {
+                    EchartsService.resizeAll();
+                }
+            }, 200));
+            
             hideLoading();
             
         } catch (e) {
@@ -307,6 +314,10 @@
     
     function handleLogout() {
         if (confirm('确定要退出登录吗？')) {
+            /* 销毁所有 ECharts 实例，释放内存 */
+            if (typeof EchartsService !== 'undefined') {
+                EchartsService.disposeAll();
+            }
             AuthService.logout();
             showAuthPage();
             showToast('已退出登录', 'info');
@@ -537,6 +548,7 @@
     
     function updateStatsDisplay() {
         const stats = DiaryService.getStats(currentPeriod);
+        const diaries = DiaryService.getDiaries();
         
         const statDiaries = document.getElementById('stat-diaries');
         const statWords = document.getElementById('stat-words');
@@ -548,17 +560,25 @@
         if (statAvgWords) statAvgWords.textContent = stats.avgWords;
         if (statStreak) statStreak.textContent = stats.streak;
         
-        const frequencyChart = document.getElementById('frequency-chart');
-        if (frequencyChart) {
-            const chartData = StatsService.getFrequencyChartData(stats, currentPeriod);
-            frequencyChart.innerHTML = StatsService.generateChartHTML(chartData, 'bar');
-        }
+        /* 使用 ECharts 渲染写作频率柱状图 */
+        const chartData = StatsService.getFrequencyChartData(stats, currentPeriod);
+        EchartsService.renderFrequencyChart(chartData);
         
-        const emotionChart = document.getElementById('emotion-chart');
-        if (emotionChart) {
-            const emotionData = StatsService.getEmotionChartData(stats);
-            emotionChart.innerHTML = StatsService.generatePieChartHTML(emotionData);
-        }
+        /* 使用 ECharts 渲染情绪分布饼图 */
+        const emotionData = StatsService.getEmotionChartData(stats);
+        EchartsService.renderEmotionChart(emotionData);
+        
+        /* 渲染写作习惯雷达图 */
+        const radarData = StatsService.getWritingHabitRadarData(stats, currentPeriod, diaries);
+        EchartsService.renderRadarChart(radarData);
+        
+        /* 渲染情绪变化桑基图 */
+        const sankeyData = StatsService.getEmotionSankeyData(diaries);
+        EchartsService.renderSankeyChart(sankeyData);
+        
+        /* 渲染词频趋势折线图 */
+        const wordFreqData = StatsService.getWordFreqTrendData(diaries);
+        EchartsService.renderWordFreqChart(wordFreqData);
     }
     
     function escapeHtml(text) {
