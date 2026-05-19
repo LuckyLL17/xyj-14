@@ -377,6 +377,306 @@ const StatsService = (function() {
         return html;
     }
     
+    /**
+     * 获取写作习惯雷达图数据
+     * 分析多个维度的写作习惯：写作频率、平均字数、最长篇幅、写作时段多样性、情绪多样性
+     * @param {Array} diaries - 日记列表
+     * @param {string} period - 统计周期
+     * @returns {Object} - 雷达图数据 { indicators: [], values: [] }
+     */
+    function getWritingHabitsRadarData(diaries, period = 'all') {
+        const filteredDiaries = period === 'all' ? diaries : filterDiariesByPeriod(diaries, period);
+        
+        if (filteredDiaries.length === 0) {
+            return {
+                indicators: [],
+                values: []
+            };
+        }
+
+        // 计算各维度数据
+        const totalDiaries = filteredDiaries.length;
+        const totalWords = filteredDiaries.reduce((sum, d) => sum + countWords(d.content), 0);
+        const avgWords = Math.round(totalWords / totalDiaries);
+        const maxWords = Math.max(...filteredDiaries.map(d => countWords(d.content)));
+
+        // 分析写作时段多样性（按小时分布）
+        const hourDistribution = {};
+        filteredDiaries.forEach(diary => {
+            const hour = new Date(diary.createdAt).getHours();
+            hourDistribution[hour] = (hourDistribution[hour] || 0) + 1;
+        });
+        const uniqueHours = Object.keys(hourDistribution).length;
+        const timeDiversity = Math.min(100, Math.round((uniqueHours / 24) * 100));
+
+        // 分析情绪多样性
+        const emotionTypes = new Set();
+        filteredDiaries.forEach(diary => {
+            if (diary.sentiment && diary.sentiment.dominant) {
+                emotionTypes.add(diary.sentiment.dominant);
+            }
+        });
+        const emotionDiversity = Math.min(100, Math.round((emotionTypes.size / 3) * 100));
+
+        // 计算写作频率得分（基于周期内的天数覆盖率）
+        const uniqueDays = new Set(filteredDiaries.map(d => formatDate(d.createdAt)));
+        let frequencyScore;
+        switch (period) {
+            case 'day':
+                frequencyScore = Math.min(100, totalDiaries * 20);
+                break;
+            case 'week':
+                frequencyScore = Math.min(100, Math.round((uniqueDays.size / 7) * 100));
+                break;
+            case 'month':
+                frequencyScore = Math.min(100, Math.round((uniqueDays.size / 30) * 100));
+                break;
+            case 'year':
+                frequencyScore = Math.min(100, Math.round((uniqueDays.size / 365) * 100));
+                break;
+            default:
+                frequencyScore = Math.min(100, Math.round((uniqueDays.size / 30) * 100));
+        }
+
+        // 平均字数得分（以500字为满分基准）
+        const avgWordsScore = Math.min(100, Math.round((avgWords / 500) * 100));
+
+        // 最长篇幅得分（以2000字为满分基准）
+        const maxWordsScore = Math.min(100, Math.round((maxWords / 2000) * 100));
+
+        // 构建雷达图数据
+        return {
+            indicators: [
+                { name: '写作频率', max: 100 },
+                { name: '平均字数', max: 100 },
+                { name: '最长篇幅', max: 100 },
+                { name: '时段多样性', max: 100 },
+                { name: '情绪多样性', max: 100 }
+            ],
+            values: [
+                frequencyScore,
+                avgWordsScore,
+                maxWordsScore,
+                timeDiversity,
+                emotionDiversity
+            ],
+            // 原始数据，用于悬停显示
+            rawData: {
+                totalDiaries,
+                avgWords,
+                maxWords,
+                uniqueHours,
+                emotionTypes: emotionTypes.size
+            }
+        };
+    }
+
+    /**
+     * 获取情绪变化桑基图数据
+     * 分析按时间顺序的情绪转换关系
+     * @param {Array} diaries - 日记列表
+     * @returns {Object} - 桑基图数据 { nodes: [], links: [] }
+     */
+    function getEmotionSankeyData(diaries) {
+        if (diaries.length < 2) {
+            return { nodes: [], links: [] };
+        }
+
+        // 按时间排序
+        const sortedDiaries = [...diaries].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+        // 情绪类型映射
+        const emotionMap = {
+            positive: '积极情绪',
+            neutral: '中性情绪',
+            negative: '消极情绪'
+        };
+
+        // 情绪颜色
+        const emotionColors = {
+            positive: '#22c55e',
+            neutral: '#f59e0b',
+            negative: '#ef4444'
+        };
+
+        // 统计情绪转换
+        const transitions = {};
+        const emotionCounts = { positive: 0, neutral: 0, negative: 0 };
+
+        for (let i = 0; i < sortedDiaries.length - 1; i++) {
+            const current = sortedDiaries[i];
+            const next = sortedDiaries[i + 1];
+
+            if (current.sentiment && next.sentiment) {
+                const currentEmotion = current.sentiment.dominant;
+                const nextEmotion = next.sentiment.dominant;
+
+                if (currentEmotion && nextEmotion) {
+                    // 排除自循环，桑基图不支持 cycle
+                    if (currentEmotion !== nextEmotion) {
+                        const key = `${currentEmotion}->${nextEmotion}`;
+                        transitions[key] = (transitions[key] || 0) + 1;
+                    }
+                    emotionCounts[currentEmotion]++;
+                }
+            }
+        }
+
+        // 统计最后一篇的情绪
+        if (sortedDiaries.length > 0 && sortedDiaries[sortedDiaries.length - 1].sentiment) {
+            const lastEmotion = sortedDiaries[sortedDiaries.length - 1].sentiment.dominant;
+            if (lastEmotion) {
+                emotionCounts[lastEmotion]++;
+            }
+        }
+
+        // 构建节点数据
+        const nodes = Object.entries(emotionMap).map(([key, name]) => ({
+            name: name,
+            itemStyle: {
+                color: emotionColors[key]
+            }
+        }));
+
+        // 构建链接数据
+        const links = Object.entries(transitions).map(([key, value]) => {
+            const [source, target] = key.split('->');
+            return {
+                source: emotionMap[source],
+                target: emotionMap[target],
+                value: value,
+                lineStyle: {
+                    color: {
+                        type: 'linear',
+                        x: 0,
+                        y: 0,
+                        x2: 1,
+                        y2: 0,
+                        colorStops: [
+                            { offset: 0, color: emotionColors[source] },
+                            { offset: 1, color: emotionColors[target] }
+                        ]
+                    }
+                }
+            };
+        });
+
+        return { nodes, links, emotionCounts };
+    }
+
+    /**
+     * 获取词频趋势折线图数据
+     * 分析高频词汇在时间上的变化趋势
+     * @param {Array} diaries - 日记列表
+     * @param {string} period - 统计周期
+     * @param {number} topN - 显示前N个高频词
+     * @returns {Object} - 折线图数据 { dates: [], words: [{ name: '', data: [] }] }
+     */
+    function getWordFrequencyLineData(diaries, period = 'all', topN = 5) {
+        const filteredDiaries = period === 'all' ? diaries : filterDiariesByPeriod(diaries, period);
+        
+        if (filteredDiaries.length === 0) {
+            return { dates: [], words: [] };
+        }
+
+        // 按日期分组
+        const dateGroups = {};
+        filteredDiaries.forEach(diary => {
+            const dateKey = formatDate(diary.createdAt);
+            if (!dateGroups[dateKey]) {
+                dateGroups[dateKey] = [];
+            }
+            dateGroups[dateKey].push(diary);
+        });
+
+        const sortedDates = Object.keys(dateGroups).sort();
+
+        // 统计所有词汇频率
+        const wordFrequency = {};
+        const stopWords = ['的', '了', '是', '我', '有', '和', '就', '不', '人', '都', '一', '一个', '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那', '里', '在', '他', '她', '它', '们', '这个', '那个', '什么', '怎么', '为什么', '因为', '所以', '但是', '然后', '还是', '或者', '如果', '虽然', '然而', '而且', '并且', '以及', '等', '等等', '啊', '哦', '嗯', '哈', '呀', '吧', '呢', '吗'];
+
+        filteredDiaries.forEach(diary => {
+            const content = diary.content || '';
+            // 提取中文字符
+            const chineseChars = content.match(/[\u4e00-\u9fa5]+/g) || [];
+            chineseChars.forEach(text => {
+                // 简单的分词：按2-4个字符组合
+                for (let len = 2; len <= Math.min(4, text.length); len++) {
+                    for (let i = 0; i <= text.length - len; i++) {
+                        const word = text.substring(i, i + len);
+                        if (!stopWords.includes(word) && word.length >= 2) {
+                            wordFrequency[word] = (wordFrequency[word] || 0) + 1;
+                        }
+                    }
+                }
+            });
+        });
+
+        // 获取TopN高频词
+        const topWords = Object.entries(wordFrequency)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, topN)
+            .map(([word]) => word);
+
+        if (topWords.length === 0) {
+            return { dates: [], words: [] };
+        }
+
+        // 构建每个词的时间序列数据
+        const wordsData = topWords.map(word => {
+            const data = sortedDates.map(date => {
+                const diariesOnDate = dateGroups[date] || [];
+                let count = 0;
+                diariesOnDate.forEach(diary => {
+                    const content = diary.content || '';
+                    const regex = new RegExp(word, 'g');
+                    const matches = content.match(regex);
+                    if (matches) {
+                        count += matches.length;
+                    }
+                });
+                return count;
+            });
+            return { name: word, data };
+        });
+
+        // 格式化日期显示
+        const formattedDates = sortedDates.map(date => {
+            const d = new Date(date);
+            return `${d.getMonth() + 1}/${d.getDate()}`;
+        });
+
+        return {
+            dates: formattedDates,
+            words: wordsData,
+            sortedDates: sortedDates
+        };
+    }
+
+    /**
+     * 获取详细的统计数据，包含所有新图表需要的数据
+     * @param {Array} diaries - 日记列表
+     * @param {string} period - 统计周期
+     * @returns {Object} - 完整的统计数据
+     */
+    function getAdvancedStats(diaries, period = 'all') {
+        const basicStats = calculateStats(diaries, period);
+        const frequencyData = getFrequencyChartData(basicStats, period);
+        const emotionData = getEmotionChartData(basicStats);
+        const radarData = getWritingHabitsRadarData(diaries, period);
+        const sankeyData = getEmotionSankeyData(diaries);
+        const lineData = getWordFrequencyLineData(diaries, period);
+
+        return {
+            basicStats,
+            frequencyData,
+            emotionData,
+            radarData,
+            sankeyData,
+            lineData
+        };
+    }
+
     return {
         countWords,
         formatDate,
@@ -391,6 +691,10 @@ const StatsService = (function() {
         getFrequencyChartData,
         getEmotionChartData,
         generateChartHTML,
-        generatePieChartHTML
+        generatePieChartHTML,
+        getWritingHabitsRadarData,
+        getEmotionSankeyData,
+        getWordFrequencyLineData,
+        getAdvancedStats
     };
 })();
