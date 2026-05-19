@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加密日记 - 离线优先</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- 登录/注册页面 -->
+        <div id="auth-page" class="page active">
+            <div class="auth-container">
+                <h1>加密日记</h1>
+                <p class="subtitle">离线优先 · 安全加密</p>
+                
+                <div class="auth-tabs">
+                    <button id="login-tab" class="tab-btn active">登录</button>
+                    <button id="register-tab" class="tab-btn">注册</button>
+                </div>
+                
+                <!-- 登录表单 -->
+                <form id="login-form" class="auth-form">
+                    <div class="form-group">
+                        <label for="login-username">用户名</label>
+                        <input type="text" id="login-username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">密码</label>
+                        <input type="password" id="login-password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">登录</button>
+                    <div id="login-error" class="error-msg"></div>
+                </form>
+                
+                <!-- 注册表单 -->
+                <form id="register-form" class="auth-form hidden">
+                    <div class="form-group">
+                        <label for="register-username">用户名</label>
+                        <input type="text" id="register-username" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-password">密码</label>
+                        <input type="password" id="register-password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="register-confirm">确认密码</label>
+                        <input type="password" id="register-confirm" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">注册</button>
+                    <div id="register-error" class="error-msg"></div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- 主页面 -->
+        <div id="main-page" class="page hidden">
+            <header class="app-header">
+                <div class="header-left">
+                    <h1>加密日记</h1>
+                    <span id="user-display"></span>
+                </div>
+                <div class="header-right">
+                    <button id="new-diary-btn" class="btn btn-primary">
+                        <span class="icon">+</span> 新日记
+                    </button>
+                    <button id="stats-btn" class="btn btn-secondary">统计</button>
+                    <button id="logout-btn" class="btn btn-danger">退出</button>
+                </div>
+            </header>
+            
+            <div class="main-content">
+                <!-- 侧边栏 - 日记列表 -->
+                <aside class="sidebar">
+                    <div class="search-box">
+                        <input type="text" id="search-input" placeholder="搜索日记...">
+                    </div>
+                    <div class="diary-list" id="diary-list">
+                        <!-- 日记列表项将动态生成 -->
+                    </div>
+                </aside>
+                
+                <!-- 主内容区 -->
+                <main class="content-area">
+                    <!-- 欢迎界面 -->
+                    <div id="welcome-view" class="view active">
+                        <div class="welcome-content">
+                            <h2>欢迎回来！</h2>
+                            <p>点击"新日记"开始写作，或从左侧选择一篇日记查看。</p>
+                        </div>
+                    </div>
+                    
+                    <!-- 编辑器视图 -->
+                    <div id="editor-view" class="view hidden">
+                        <div class="editor-container">
+                            <div class="editor-header">
+                                <input type="text" id="diary-title" placeholder="日记标题" class="title-input">
+                                <div class="diary-meta" id="diary-meta">
+                                    <span id="meta-date"></span>
+                                    <span id="meta-time"></span>
+                                    <span id="meta-weather"></span>
+                                </div>
+                            </div>
+                            
+                            <!-- 编辑器工具栏 -->
+                            <div class="editor-toolbar">
+                                <div class="toolbar-group">
+                                    <span class="toolbar-label">模式:</span>
+                                    <select id="editor-mode">
+                                        <option value="rich">富文本</option>
+                                        <option value="markdown">Markdown</option>
+                                    </select>
+                                </div>
+                                <div class="toolbar-group" id="rich-toolbar">
+                                    <button class="toolbar-btn" data-action="bold" title="粗体 (Ctrl+B)">
+                                        <span class="icon">B</span>
+                                    </button>
+                                    <button class="toolbar-btn" data-action="italic" title="斜体 (Ctrl+I)">
+                                        <span class="icon">I</span>
+                                    </button>
+                                    <button class="toolbar-btn" data-action="underline" title="下划线 (Ctrl+U)">
+                                        <span class="icon">U</span>
+                                    </button>
+                                    <button class="toolbar-btn" data-action="strikethrough" title="删除线">
+                                        <span class="icon">S</span>
+                                    </button>
+                                    <div class="toolbar-separator"></div>
+                                    <button class="toolbar-btn" data-action="h1" title="标题1">H1</button>
+                                    <button class="toolbar-btn" data-action="h2" title="标题2">H2</button>
+                                    <button class="toolbar-btn" data-action="h3" title="标题3">H3</button>
+                                    <div class="toolbar-separator"></div>
+                                    <button class="toolbar-btn" data-action="ul" title="无序列表">
+                                        <span class="icon">•</span>
+                                    </button>
+                                    <button class="toolbar-btn" data-action="ol" title="有序列表">
+                                        <span class="icon">1.</span>
+                                    </button>
+                                    <div class="toolbar-separator"></div>
+                                    <button class="toolbar-btn" data-action="link" title="插入链接">
+                                        <span class="icon">🔗</span>
+                                    </button>
+                                    <button class="toolbar-btn" data-action="image" title="插入图片">
+                                        <span class="icon">🖼</span>
+                                    </button>
+                                </div>
+                                <div class="toolbar-group" id="markdown-toolbar" style="display: none;">
+                                    <button class="toolbar-btn" data-markdown="**" title="粗体">**粗体**</button>
+                                    <button class="toolbar-btn" data-markdown="*" title="斜体">*斜体*</button>
+                                    <button class="toolbar-btn" data-markdown="~~" title="删除线">~~删除~~</button>
+                                    <div class="toolbar-separator"></div>
+                                    <button class="toolbar-btn" data-markdown="# " title="标题1"># 标题</button>
+                                    <button class="toolbar-btn" data-markdown="## " title="标题2">## 标题</button>
+                                    <div class="toolbar-separator"></div>
+                                    <button class="toolbar-btn" data-markdown="- " title="列表">- 列表项</button>
+                                    <button class="toolbar-btn" data-markdown="1. " title="有序列表">1. 列表</button>
+                                    <div class="toolbar-separator"></div>
+                                    <button class="toolbar-btn" data-markdown="[]()" title="链接">[链接](url)</button>
+                                    <button class="toolbar-btn" data-markdown="![]()" title="图片">![图片](url)</button>
+                                    <button class="toolbar-btn" data-markdown="```" title="代码块">```代码```</button>
+                                    <button class="toolbar-btn" data-markdown="> " title="引用">> 引用</button>
+                                </div>
+                                <div class="toolbar-group">
+                                    <button class="toolbar-btn" data-action="insert-date" title="插入日期">📅</button>
+                                    <button class="toolbar-btn" data-action="insert-time" title="插入时间">⏰</button>
+                                    <button class="toolbar-btn" data-action="insert-weather" title="插入天气">🌤</button>
+                                    <button class="toolbar-btn" data-action="insert-emotion" title="心情标签">😊</button>
+                                </div>
+                            </div>
+                            
+                            <!-- 隐藏的图片上传输入 -->
+                            <input type="file" id="image-upload-input" accept="image/*" style="display: none;">
+                            
+                            <!-- 编辑器主体 -->
+                            <div class="editor-body">
+                                <!-- 富文本编辑器 -->
+                                <div id="rich-editor" class="editor-wrapper">
+                                    <div id="rich-content" class="content-editor" contenteditable="true" placeholder="开始写作..."></div>
+                                </div>
+                                
+                                <!-- Markdown编辑器 -->
+                                <div id="markdown-editor" class="editor-wrapper" style="display: none;">
+                                    <textarea id="markdown-content" class="markdown-editor" placeholder="开始写作（支持Markdown）..."></textarea>
+                                    <div id="markdown-preview" class="markdown-preview"></div>
+                                </div>
+                            </div>
+                            
+                            <!-- 情绪分析和操作栏 -->
+                            <div class="editor-footer">
+                                <div class="emotion-analysis" id="emotion-analysis">
+                                    <span class="label">情感分析:</span>
+                                    <div class="emotion-bars">
+                                        <div class="emotion-bar">
+                                            <span class="emotion-name">积极</span>
+                                            <div class="bar-container">
+                                                <div class="bar-fill positive" id="emotion-positive" style="width: 0%"></div>
+                                            </div>
+                                            <span class="emotion-value" id="emotion-positive-value">0%</span>
+                                        </div>
+                                        <div class="emotion-bar">
+                                            <span class="emotion-name">中性</span>
+                                            <div class="bar-container">
+                                                <div class="bar-fill neutral" id="emotion-neutral" style="width: 0%"></div>
+                                            </div>
+                                            <span class="emotion-value" id="emotion-neutral-value">0%</span>
+                                        </div>
+                                        <div class="emotion-bar">
+                                            <span class="emotion-name">消极</span>
+                                            <div class="bar-container">
+                                                <div class="bar-fill negative" id="emotion-negative" style="width: 0%"></div>
+                                            </div>
+                                            <span class="emotion-value" id="emotion-negative-value">0%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="editor-actions">
+                                    <span class="word-count" id="word-count">字数: 0</span>
+                                    <button id="save-diary-btn" class="btn btn-primary">保存</button>
+                                    <button id="cancel-edit-btn" class="btn btn-secondary">取消</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- 统计视图 -->
+                    <div id="stats-view" class="view hidden">
+                        <div class="stats-container">
+                            <h2>写作统计</h2>
+                            
+                            <div class="stats-period-tabs">
+                                <button class="period-btn active" data-period="day">今日</button>
+                                <button class="period-btn" data-period="week">本周</button>
+                                <button class="period-btn" data-period="month">本月</button>
+                                <button class="period-btn" data-period="year">本年</button>
+                            </div>
+                            
+                            <div class="stats-summary" id="stats-summary">
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-diaries">0</div>
+                                    <div class="stat-label">日记数量</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-words">0</div>
+                                    <div class="stat-label">总字数</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-avg-words">0</div>
+                                    <div class="stat-label">平均字数</div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-value" id="stat-streak">0</div>
+                                    <div class="stat-label">连续写作</div>
+                                </div>
+                            </div>
+                            
+                            <div class="stats-charts">
+                                <div class="chart-container">
+                                    <h3>写作频率</h3>
+                                    <div class="chart" id="frequency-chart"></div>
+                                </div>
+                                <div class="chart-container">
+                                    <h3>情绪分布</h3>
+                                    <div class="chart" id="emotion-chart"></div>
+                                </div>
+                            </div>
+                            
+                            <button id="back-from-stats" class="btn btn-secondary">返回</button>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 快捷输入面板 -->
+    <div id="quick-input-panel" class="quick-input-panel hidden">
+        <div class="quick-input-header">
+            <span>快捷输入</span>
+            <button id="close-quick-panel" class="close-btn">×</button>
+        </div>
+        <div class="quick-input-content">
+            <div class="quick-section">
+                <h4>常用短语</h4>
+                <div class="quick-items" id="quick-phrases">
+                    <span class="quick-item" data-text="今天天气真好！">今天天气真好！</span>
+                    <span class="quick-item" data-text="今天心情不错。">今天心情不错。</span>
+                    <span class="quick-item" data-text="工作顺利完成。">工作顺利完成。</span>
+                    <span class="quick-item" data-text="学习了新知识。">学习了新知识。</span>
+                    <span class="quick-item" data-text="和朋友聚会很开心。">和朋友聚会很开心。</span>
+                    <span class="quick-item" data-text="今天有些疲惫。">今天有些疲惫。</span>
+                </div>
+            </div>
+            <div class="quick-section">
+                <h4>心情标签</h4>
+                <div class="quick-items" id="quick-emotions">
+                    <span class="quick-item emotion-tag" data-emotion="happy" data-text="😊 开心">😊 开心</span>
+                    <span class="quick-item emotion-tag" data-emotion="calm" data-text="😌 平静">😌 平静</span>
+                    <span class="quick-item emotion-tag" data-emotion="excited" data-text="🤩 兴奋">🤩 兴奋</span>
+                    <span class="quick-item emotion-tag" data-emotion="grateful" data-text="🙏 感恩">🙏 感恩</span>
+                    <span class="quick-item emotion-tag" data-emotion="sad" data-text="😢 难过">😢 难过</span>
+                    <span class="quick-item emotion-tag" data-emotion="angry" data-text="😠 生气">😠 生气</span>
+                    <span class="quick-item emotion-tag" data-emotion="anxious" data-text="😰 焦虑">😰 焦虑</span>
+                    <span class="quick-item emotion-tag" data-emotion="tired" data-text="😴 疲惫">😴 疲惫</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 加载指示器 -->
+    <div id="loading-overlay" class="loading-overlay hidden">
+        <div class="loading-spinner"></div>
+        <p id="loading-text">加载中...</p>
+    </div>
+    
+    <!-- 提示消息 -->
+    <div id="toast" class="toast hidden"></div>
+    
+    <script src="js/services/storage.service.js"></script>
+    <script src="js/services/crypto.service.js"></script>
+    <script src="js/services/mock-api.service.js"></script>
+    <script src="js/services/auth.service.js"></script>
+    <script src="js/services/weather.service.js"></script>
+    <script src="js/services/sentiment.service.js"></script>
+    <script src="js/services/stats.service.js"></script>
+    <script src="js/services/diary.service.js"></script>
+    <script src="js/utils/date.utils.js"></script>
+    <script src="js/utils/markdown.utils.js"></script>
+    <script src="js/components/editor.component.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
