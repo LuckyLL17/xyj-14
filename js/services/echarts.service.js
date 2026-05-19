@@ -5,8 +5,10 @@
  * 提供：柱状图、饼图、雷达图、桑基图、词频折线图
  * 支持交互：鼠标滚轮缩放、框选筛选、悬停明细
  */
-// 将 EChartsService 暴露到 window，确保在 app.js 的 IIFE 中也能访问
-window.EChartsService = (function() {
+const EChartsService = (function() {
+
+    // ECharts 库是否已加载
+    const isAvailable = typeof echarts !== 'undefined';
 
     // 已创建的 ECharts 实例缓存，便于销毁和 resize
     const chartInstances = {};
@@ -15,30 +17,25 @@ window.EChartsService = (function() {
     const COLORS = ['#6366f1', '#22c55e', '#f59e0b', '#ef4444', '#0ea5e9', '#a855f7', '#ec4899', '#14b8a6'];
 
     /**
-     * 检查 ECharts 全局对象是否可用
-     * @returns {boolean}
-     */
-    function isEChartsAvailable() {
-        return typeof window.echarts !== 'undefined' && window.echarts !== null;
-    }
-
-    /**
      * 获取或初始化一个 ECharts 实例
      * @param {string} domId 容器 DOM 的 id
      * @returns {echarts.ECharts}
      */
     function getInstance(domId) {
-        if (!isEChartsAvailable()) {
-            console.warn('[EChartsService] echarts 尚未加载，无法初始化图表');
-            return null;
-        }
+        // 如果 ECharts 库未加载，直接返回 null
+        if (!isAvailable) return null;
         const dom = document.getElementById(domId);
-        if (!dom) {
-            console.warn('[EChartsService] 未找到容器:', domId);
-            return null;
-        }
+        if (!dom) return null;
+        // 强制触发一次重排，确保浏览器已计算出容器尺寸
+        // 避免在切换 tab 瞬间容器隐藏时 ECharts 读到 0 尺寸
+        void dom.offsetWidth;
+        void dom.offsetHeight;
         if (chartInstances[domId]) {
             return chartInstances[domId];
+        }
+        // 如果容器尺寸仍然为 0（还没完成布局），延迟重试最多 5 次
+        if (dom.offsetWidth === 0 || dom.offsetHeight === 0) {
+            return null;
         }
         chartInstances[domId] = echarts.init(dom);
         return chartInstances[domId];
@@ -70,7 +67,14 @@ window.EChartsService = (function() {
      */
     function resizeAll() {
         Object.keys(chartInstances).forEach(key => {
-            try { chartInstances[key].resize(); } catch (e) {}
+            try {
+                const chart = chartInstances[key];
+                const dom = chart.getDom();
+                // 再次确保容器尺寸已就绪
+                void dom.offsetWidth;
+                void dom.offsetHeight;
+                chart.resize();
+            } catch (e) {}
         });
     }
 
@@ -483,47 +487,55 @@ window.EChartsService = (function() {
 
     /**
      * 统一渲染：根据已有的 stats 与 diaries 数据
-     * 调用所有图表的渲染入口
+     * 调用所有图表的渲染入口，支持延迟重试（等待容器布局完成）
      * @param {Object} stats StatsService.calculateStats 返回的数据
      * @param {Array} diaries 全部日记数组（用于雷达、桑基、词频趋势）
      * @param {string} period 当前选择的时间范围（day/week/month/year/all）
      */
     function renderAll(stats, diaries, period) {
-        // 若 ECharts 未可用，延迟重试（CDN 可能尚未加载完成）
-        if (!isEChartsAvailable()) {
-            console.warn('[EChartsService] ECharts 未加载，500ms 后重试...');
-            setTimeout(() => renderAll(stats, diaries, period), 500);
+        // 如果 ECharts 库没加载，退化为简易文本提示
+        if (!isAvailable) {
+            const ids = ['frequency-chart', 'emotion-chart', 'radar-chart', 'sankey-chart', 'keyword-trend-chart'];
+            ids.forEach(id => {
+                const el = document.getElementById(id);
+                if (el) {
+                    el.innerHTML = '<p style="color:#94a3b8;text-align:center;padding:40px 0;">图表加载失败，请检查网络连接</p>';
+                }
+            });
             return;
         }
-        // 确保统计页已经显示（否则 DOM 宽度为 0，ECharts 无法渲染）
-        const statsView = document.getElementById('stats-view');
-        if (statsView && statsView.classList.contains('hidden')) {
-            setTimeout(() => renderAll(stats, diaries, period), 50);
-            return;
-        }
+        // 每个图表的渲染任务列表：包含渲染函数、参数
+        const tasks = [
+            { name: 'frequency', fn: renderFrequencyBar, args: ['frequency-chart', StatsService.getFrequencyChartData(stats, period)] },
+            { name: 'emotion', fn: renderEmotionPie, args: ['emotion-chart', StatsService.getEmotionChartData(stats)] },
+            { name: 'radar', fn: renderWritingRadar, args: ['radar-chart', StatsService.getWritingHabitRadarData(diaries)] },
+            { name: 'sankey', fn: renderEmotionSankey, args: ['sankey-chart', StatsService.getEmotionSankeyData(diaries)] },
+            { name: 'keyword', fn: renderKeywordTrend, args: ['keyword-trend-chart', StatsService.getKeywordTrendData(diaries, 8)] }
+        ];
 
-        // 1. 写作频率柱状图
-        const freqData = StatsService.getFrequencyChartData(stats, period);
-        renderFrequencyBar('frequency-chart', freqData);
+        let remaining = tasks.slice();
+        let attempts = 0;
+        const MAX_ATTEMPTS = 10;
 
-        // 2. 情绪分布饼图
-        const emoData = StatsService.getEmotionChartData(stats);
-        renderEmotionPie('emotion-chart', emoData);
-
-        // 3. 写作习惯雷达图
-        const radarData = StatsService.getWritingHabitRadarData(diaries);
-        renderWritingRadar('radar-chart', radarData);
-
-        // 4. 情绪变化桑基图（需要所有历史日记的情绪）
-        const sankeyData = StatsService.getEmotionSankeyData(diaries);
-        renderEmotionSankey('sankey-chart', sankeyData);
-
-        // 5. 词频趋势折线图
-        const trendData = StatsService.getKeywordTrendData(diaries, 8);
-        renderKeywordTrend('keyword-trend-chart', trendData);
-
-        // 初始化完成后触发一次 resize，保证 canvas 与容器尺寸对齐
-        setTimeout(() => resizeAll(), 50);
+        // 逐轮尝试渲染，直到所有图表都成功，或达到最大重试次数
+        const tryRender = () => {
+            if (attempts >= MAX_ATTEMPTS) return;
+            const stillPending = [];
+            remaining.forEach(task => {
+                // 调用渲染函数，传入参数
+                task.fn(task.args[0], task.args[1]);
+                // 如果该图表对应的 ECharts 实例仍然不存在，说明容器还没准备好
+                if (!chartInstances[task.args[0]]) {
+                    stillPending.push(task);
+                }
+            });
+            remaining = stillPending;
+            attempts++;
+            if (remaining.length > 0) {
+                setTimeout(tryRender, 100);
+            }
+        };
+        tryRender();
     }
 
     return {
@@ -531,7 +543,6 @@ window.EChartsService = (function() {
         disposeInstance,
         disposeAll,
         resizeAll,
-        isEChartsAvailable,
         renderFrequencyBar,
         renderEmotionPie,
         renderWritingRadar,
@@ -540,5 +551,6 @@ window.EChartsService = (function() {
         renderAll
     };
 })();
-// 兼容：同时在 window 和全局作用域暴露，方便 app.js 访问
-const EChartsService = window.EChartsService;
+
+// 显式挂载到 window，确保在严格模式下也能通过 window.EChartsService 访问
+window.EChartsService = EChartsService;

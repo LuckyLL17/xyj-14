@@ -385,7 +385,13 @@
     
     function handleShowStats() {
         showView('stats');
-        updateStatsDisplay();
+        // 使用 requestAnimationFrame 延迟到浏览器完成布局后再渲染图表
+        // 否则 ECharts 初始化时容器尺寸可能为 0，导致渲染失败
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                updateStatsDisplay();
+            });
+        });
     }
     
     function handleBackFromStats() {
@@ -557,8 +563,6 @@
         // 使用 EChartsService 统一渲染：柱状图、饼图、雷达图、桑基图、折线图
         if (typeof EChartsService !== 'undefined' && typeof EChartsService.renderAll === 'function') {
             EChartsService.renderAll(stats, allDiaries, currentPeriod);
-        } else {
-            console.warn('[app] EChartsService 未定义，图表无法渲染');
         }
     }
     
