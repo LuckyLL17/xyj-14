@@ -536,8 +536,11 @@
     }
     
     function updateStatsDisplay() {
-        const stats = DiaryService.getStats(currentPeriod);
+        const diaries = DiaryService.getDiaries();
+        const advancedStats = StatsService.getAdvancedStats(diaries, currentPeriod);
+        const stats = advancedStats.basicStats;
         
+        // 更新统计卡片数据
         const statDiaries = document.getElementById('stat-diaries');
         const statWords = document.getElementById('stat-words');
         const statAvgWords = document.getElementById('stat-avg-words');
@@ -548,17 +551,20 @@
         if (statAvgWords) statAvgWords.textContent = stats.avgWords;
         if (statStreak) statStreak.textContent = stats.streak;
         
-        const frequencyChart = document.getElementById('frequency-chart');
-        if (frequencyChart) {
-            const chartData = StatsService.getFrequencyChartData(stats, currentPeriod);
-            frequencyChart.innerHTML = StatsService.generateChartHTML(chartData, 'bar');
-        }
+        // 使用 ECharts 渲染写作频率柱状图
+        ChartsService.renderBarChart('frequency-chart', advancedStats.frequencyData);
         
-        const emotionChart = document.getElementById('emotion-chart');
-        if (emotionChart) {
-            const emotionData = StatsService.getEmotionChartData(stats);
-            emotionChart.innerHTML = StatsService.generatePieChartHTML(emotionData);
-        }
+        // 使用 ECharts 渲染情绪分布饼图
+        ChartsService.renderPieChart('emotion-chart', advancedStats.emotionData);
+        
+        // 使用 ECharts 渲染写作习惯雷达图
+        ChartsService.renderRadarChart('writing-habits-radar', advancedStats.radarData);
+        
+        // 使用 ECharts 渲染情绪变化桑基图
+        ChartsService.renderSankeyChart('emotion-sankey', advancedStats.sankeyData);
+        
+        // 使用 ECharts 渲染词频趋势折线图
+        ChartsService.renderLineChart('word-frequency-line', advancedStats.lineData);
     }
     
     function escapeHtml(text) {
