@@ -376,7 +376,196 @@ const StatsService = (function() {
         html += '</div>';
         return html;
     }
-    
+
+    /**
+     * 获取写作习惯雷达图数据
+     * 从所有日记中提取六个维度的写作习惯指标：
+     *   1. 写作频率（日记数量）
+     *   2. 平均字数
+     *   3. 写作连续性（连续天数）
+     *   4. 情感积极度
+     *   5. 关键词丰富度（去重关键词数 / 总关键词数）
+     *   6. 时间分布均衡度（在一天各时段写作的分散程度）
+     * 返回一个对象，包含 indicator 数组（维度定义）和 value 数组（归一化后的指标值）
+     */
+    function getWritingHabitRadarData(diaries) {
+        if (!diaries || diaries.length === 0) {
+            return {
+                indicators: [
+                    { name: '写作频率', max: 100 },
+                    { name: '平均字数', max: 100 },
+                    { name: '连续性', max: 100 },
+                    { name: '积极度', max: 100 },
+                    { name: '关键词丰富', max: 100 },
+                    { name: '时间均衡', max: 100 }
+                ],
+                values: [0, 0, 0, 0, 0, 0]
+            };
+        }
+
+        const stats = calculateStats(diaries, 'all');
+
+        // 1. 写作频率：按日期数估算，最多 365 天视为满分 100
+        const uniqueDates = Object.keys(stats.frequency).length;
+        const frequency = Math.min(100, Math.round((uniqueDates / 365) * 100));
+
+        // 2. 平均字数：以平均字数 1000 字为满分
+        const avgWords = Math.min(100, Math.round((stats.avgWords / 1000) * 100));
+
+        // 3. 连续性：以连续写作天数 30 天为满分
+        const continuity = Math.min(100, Math.round((stats.streak / 30) * 100));
+
+        // 4. 积极度：积极情绪占比 * 100
+        const totalEmotions = stats.emotionStats.positive + stats.emotionStats.neutral + stats.emotionStats.negative;
+        const positivity = totalEmotions > 0
+            ? Math.round((stats.emotionStats.positive / totalEmotions) * 100)
+            : 0;
+
+        // 5. 关键词丰富度：去重关键词数 / 总关键词数
+        const allKeywords = [];
+        diaries.forEach(d => {
+            if (d.sentiment && d.sentiment.keywords) {
+                d.sentiment.keywords.forEach(k => allKeywords.push(k.word));
+            }
+        });
+        const uniqueKeywordCount = new Set(allKeywords).size;
+        const keywordRichness = allKeywords.length > 0
+            ? Math.min(100, Math.round((uniqueKeywordCount / allKeywords.length) * 100 * 2))
+            : 0;
+
+        // 6. 时间均衡度：将 24 小时分为 6 个时段，统计每个时段的日记数
+        const timeSlots = [0, 0, 0, 0, 0, 0];
+        diaries.forEach(d => {
+            const hour = new Date(d.createdAt).getHours();
+            const slotIndex = Math.floor(hour / 4);
+            timeSlots[Math.min(slotIndex, 5)]++;
+        });
+        const maxSlot = Math.max(...timeSlots, 1);
+        const timeBalance = Math.round((1 - (maxSlot - 1) / diaries.length) * 100);
+
+        return {
+            indicators: [
+                { name: '写作频率', max: 100 },
+                { name: '平均字数', max: 100 },
+                { name: '连续性', max: 100 },
+                { name: '积极度', max: 100 },
+                { name: '关键词丰富', max: 100 },
+                { name: '时间均衡', max: 100 }
+            ],
+            values: [frequency, avgWords, continuity, positivity, keywordRichness, Math.max(0, timeBalance)]
+        };
+    }
+
+    /**
+     * 获取情绪变化桑基图数据
+     * 按日期顺序，将每一天的主导情绪作为源节点，下一天的主导情绪作为目标节点
+     * 统计相邻两天之间情绪变化的频次，构建 sankey 的 nodes 和 links
+     */
+    function getEmotionSankeyData(diaries) {
+        if (!diaries || diaries.length === 0) {
+            return { nodes: [], links: [] };
+        }
+
+        // 按日期排序
+        const sortedDiaries = [...diaries].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        const dailyEmotions = [];
+
+        // 聚合同一天的日记，取出现次数最多的情绪
+        const dailyGroups = {};
+        sortedDiaries.forEach(d => {
+            const key = formatDate(d.createdAt);
+            if (!dailyGroups[key]) dailyGroups[key] = { positive: 0, neutral: 0, negative: 0 };
+            const dominant = d.sentiment && d.sentiment.dominant ? d.sentiment.dominant : 'neutral';
+            dailyGroups[key][dominant]++;
+        });
+
+        Object.keys(dailyGroups).sort().forEach(date => {
+            const g = dailyGroups[date];
+            let dominant = 'neutral';
+            if (g.positive >= g.neutral && g.positive >= g.negative) dominant = 'positive';
+            else if (g.negative > g.neutral && g.negative > g.positive) dominant = 'negative';
+            dailyEmotions.push({ date, emotion: dominant });
+        });
+
+        // 建立节点：按日期-情绪的唯一组合作为 sankey 的节点
+        const nodeSet = new Set();
+        const linksMap = {};
+
+        for (let i = 0; i < dailyEmotions.length - 1; i++) {
+            const source = `${dailyEmotions[i].date} ${emotionLabel(dailyEmotions[i].emotion)}`;
+            const target = `${dailyEmotions[i + 1].date} ${emotionLabel(dailyEmotions[i + 1].emotion)}`;
+            nodeSet.add(source);
+            nodeSet.add(target);
+            const key = `${source}->${target}`;
+            linksMap[key] = (linksMap[key] || 0) + 1;
+        }
+
+        const nodes = Array.from(nodeSet).map(name => ({ name }));
+        const links = Object.keys(linksMap).map(key => {
+            const [source, target] = key.split('->');
+            return { source, target, value: linksMap[key] };
+        });
+
+        return { nodes, links };
+    }
+
+    /**
+     * 获取词频趋势折线图数据
+     * 对日记中出现的关键词按日期聚合，统计 Top N 关键词在各日期的出现频次
+     * 返回 categories（日期标签）和 series（每个关键词一条折线）
+     */
+    function getKeywordTrendData(diaries, topN = 8) {
+        if (!diaries || diaries.length === 0) {
+            return { categories: [], series: [] };
+        }
+
+        // 先统计所有关键词的总频次，取 topN
+        const wordCount = {};
+        diaries.forEach(d => {
+            if (d.sentiment && d.sentiment.keywords) {
+                d.sentiment.keywords.forEach(k => {
+                    wordCount[k.word] = (wordCount[k.word] || 0) + 1;
+                });
+            }
+        });
+
+        const topWords = Object.keys(wordCount)
+            .sort((a, b) => wordCount[b] - wordCount[a])
+            .slice(0, topN);
+
+        // 按日期聚合 topN 关键词的出现次数
+        const dateMap = {};
+        diaries.forEach(d => {
+            const date = formatDate(d.createdAt);
+            if (!dateMap[date]) dateMap[date] = {};
+            if (d.sentiment && d.sentiment.keywords) {
+                d.sentiment.keywords.forEach(k => {
+                    if (topWords.includes(k.word)) {
+                        dateMap[date][k.word] = (dateMap[date][k.word] || 0) + 1;
+                    }
+                });
+            }
+        });
+
+        const categories = Object.keys(dateMap).sort();
+        const series = topWords.map(word => ({
+            name: word,
+            data: categories.map(date => dateMap[date][word] || 0),
+            type: 'line',
+            smooth: true
+        }));
+
+        return { categories, series, topWords };
+    }
+
+    /**
+     * 辅助：情绪英文转中文标签
+     */
+    function emotionLabel(key) {
+        const map = { positive: '积极', neutral: '中性', negative: '消极' };
+        return map[key] || '中性';
+    }
+
     return {
         countWords,
         formatDate,
@@ -391,6 +580,9 @@ const StatsService = (function() {
         getFrequencyChartData,
         getEmotionChartData,
         generateChartHTML,
-        generatePieChartHTML
+        generatePieChartHTML,
+        getWritingHabitRadarData,
+        getEmotionSankeyData,
+        getKeywordTrendData
     };
 })();

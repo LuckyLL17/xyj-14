@@ -385,10 +385,20 @@
     
     function handleShowStats() {
         showView('stats');
-        updateStatsDisplay();
+        // 使用 requestAnimationFrame 延迟到浏览器完成布局后再渲染图表
+        // 否则 ECharts 初始化时容器尺寸可能为 0，导致渲染失败
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                updateStatsDisplay();
+            });
+        });
     }
     
     function handleBackFromStats() {
+        // 退出统计页时销毁所有 ECharts 实例，释放占用的 canvas 内存
+        if (typeof EChartsService !== 'undefined' && typeof EChartsService.disposeAll === 'function') {
+            EChartsService.disposeAll();
+        }
         const currentDiary = DiaryService.getCurrentDiary();
         if (currentDiary) {
             showView('editor');
@@ -537,27 +547,22 @@
     
     function updateStatsDisplay() {
         const stats = DiaryService.getStats(currentPeriod);
-        
+        // 获取全部日记，用于雷达图、桑基图、词频趋势图（需要完整历史数据）
+        const allDiaries = DiaryService.getDiaries();
+
         const statDiaries = document.getElementById('stat-diaries');
         const statWords = document.getElementById('stat-words');
         const statAvgWords = document.getElementById('stat-avg-words');
         const statStreak = document.getElementById('stat-streak');
-        
+
         if (statDiaries) statDiaries.textContent = stats.totalDiaries;
         if (statWords) statWords.textContent = stats.totalWords.toLocaleString();
         if (statAvgWords) statAvgWords.textContent = stats.avgWords;
         if (statStreak) statStreak.textContent = stats.streak;
-        
-        const frequencyChart = document.getElementById('frequency-chart');
-        if (frequencyChart) {
-            const chartData = StatsService.getFrequencyChartData(stats, currentPeriod);
-            frequencyChart.innerHTML = StatsService.generateChartHTML(chartData, 'bar');
-        }
-        
-        const emotionChart = document.getElementById('emotion-chart');
-        if (emotionChart) {
-            const emotionData = StatsService.getEmotionChartData(stats);
-            emotionChart.innerHTML = StatsService.generatePieChartHTML(emotionData);
+
+        // 使用 EChartsService 统一渲染：柱状图、饼图、雷达图、桑基图、折线图
+        if (typeof EChartsService !== 'undefined' && typeof EChartsService.renderAll === 'function') {
+            EChartsService.renderAll(stats, allDiaries, currentPeriod);
         }
     }
     
